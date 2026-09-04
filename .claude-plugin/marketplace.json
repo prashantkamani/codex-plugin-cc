@@ -1,17 +1,17 @@
 {
-  "name": "openai-codex",
+  "name": "aria-codex",
   "owner": {
-    "name": "OpenAI"
+    "name": "Prashant Kamani"
   },
   "metadata": {
-    "description": "Codex plugins to use in Claude Code for delegation and code review.",
-    "version": "1.0.6"
+    "description": "Maintained OpenAI Codex companion fork with explicit sandbox selection.",
+    "version": "1.0.6-aria.1"
   },
   "plugins": [
     {
       "name": "codex",
-      "description": "Use Codex from Claude Code to review code or delegate tasks.",
-      "version": "1.0.6",
+      "description": "Use Codex from Claude Code with explicit sandbox selection for delegated tasks.",
+      "version": "1.0.6-aria.1",
       "author": {
         "name": "OpenAI"
       },

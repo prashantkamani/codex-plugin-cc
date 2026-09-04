@@ -21,16 +21,17 @@ they already have.
 
 ## Install
 
-Add the marketplace in Claude Code:
+This fork uses the `aria-codex` marketplace name so it can coexist with the upstream marketplace. Disable the upstream plugin for the target project, then add this fork:
 
 ```bash
-/plugin marketplace add openai/codex-plugin-cc
+/plugin disable codex@openai-codex
+/plugin marketplace add prashantkamani/codex-plugin-cc
 ```
 
 Install the plugin:
 
 ```bash
-/plugin install codex@openai-codex
+/plugin install codex@aria-codex
 ```
 
 Reload plugins:
@@ -137,7 +138,7 @@ Use it when you want Codex to:
 > [!NOTE]
 > Depending on the task and the model you choose these tasks might take a long time and it's generally recommended to force the task to be in the background or move the agent to the background.
 
-It supports `--background`, `--wait`, `--resume`, and `--fresh`. If you omit `--resume` and `--fresh`, the plugin can offer to continue the latest rescue thread for this repo.
+It supports `--background`, `--wait`, `--resume`, `--fresh`, and an explicit `--sandbox` selector. If you omit `--resume` and `--fresh`, the plugin can offer to continue the latest rescue thread for this repo.
 
 Examples:
 
@@ -148,6 +149,8 @@ Examples:
 /codex:rescue --model gpt-5.4-mini --effort medium investigate the flaky integration test
 /codex:rescue --model spark fix the issue quickly
 /codex:rescue --background investigate the regression
+/codex:rescue --sandbox inherit run the same local checks as my Codex configuration
+/codex:rescue --sandbox danger-full-access run the explicitly authorized OpenClaw verification
 ```
 
 You can also just ask for a task to be delegated to Codex:
@@ -161,6 +164,11 @@ Ask Codex to redesign the database connection to be more resilient.
 - if you do not pass `--model` or `--effort`, Codex chooses its own defaults.
 - if you say `spark`, the plugin maps that to `gpt-5.3-codex-spark`
 - follow-up rescue requests can continue the latest Codex task in the repo
+- `--sandbox read-only`, `workspace-write`, or `danger-full-access` sends that explicit app-server thread policy; `--sandbox inherit` omits the override and uses Codex configuration
+- omitting `--sandbox` preserves upstream behavior: read-only by default and workspace-write with `--write`
+
+> [!WARNING]
+> The companion uses approval policy `never`. Select `danger-full-access` only for an explicitly authorized task because the Codex worker can then write outside the workspace and use the network without an interactive approval prompt.
 
 ### `/codex:transfer`
 

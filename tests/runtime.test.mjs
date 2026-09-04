@@ -716,7 +716,7 @@ test("write task output focuses on the Codex result without generic follow-up hi
   assert.equal(result.stdout, "Handled the requested task.\nTask prompt accepted.\n");
 });
 
-test("task --resume acts like --resume-last without leaking the flag into the prompt", () => {
+test("task --resume preserves sandbox selection without leaking routing flags into the prompt", () => {
   const repo = makeTempDir();
   const binDir = makeTempDir();
   const statePath = path.join(binDir, "fake-codex-state.json");
@@ -732,7 +732,7 @@ test("task --resume acts like --resume-last without leaking the flag into the pr
   });
   assert.equal(firstRun.status, 0, firstRun.stderr);
 
-  const result = run("node", [SCRIPT, "task", "--resume", "follow up"], {
+  const result = run("node", [SCRIPT, "task", "--resume", "--sandbox", "danger-full-access", "follow up"], {
     cwd: repo,
     env: buildEnv(binDir)
   });
@@ -741,6 +741,7 @@ test("task --resume acts like --resume-last without leaking the flag into the pr
   const fakeState = JSON.parse(fs.readFileSync(statePath, "utf8"));
   assert.equal(fakeState.lastTurnStart.threadId, "thr_1");
   assert.equal(fakeState.lastTurnStart.prompt, "follow up");
+  assert.equal(fakeState.lastThreadResume.sandbox, "danger-full-access");
 });
 
 test("task --fresh is treated as routing control and does not leak into the prompt", () => {
@@ -782,6 +783,101 @@ test("task forwards model selection and reasoning effort to app-server turn/star
   const fakeState = JSON.parse(fs.readFileSync(statePath, "utf8"));
   assert.equal(fakeState.lastTurnStart.model, "gpt-5.3-codex-spark");
   assert.equal(fakeState.lastTurnStart.effort, "low");
+});
+
+test("task forwards an explicit danger-full-access sandbox to app-server thread/start", () => {
+  const repo = makeTempDir();
+  const binDir = makeTempDir();
+  const statePath = path.join(binDir, "fake-codex-state.json");
+  installFakeCodex(binDir);
+  initGitRepo(repo);
+
+  const startedAt = Date.now();
+  const result = run(
+    "node",
+    [SCRIPT, "task", "--sandbox", "danger-full-access", "run the local verification"],
+    { cwd: repo, env: buildEnv(binDir) }
+  );
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(Date.now() - startedAt < 5000, true, "sandbox selection should add no material dispatch delay");
+  const fakeState = JSON.parse(fs.readFileSync(statePath, "utf8"));
+  assert.equal(fakeState.lastThreadStart.sandbox, "danger-full-access");
+  assert.equal(fakeState.lastTurnStart.prompt, "run the local verification");
+});
+
+test("task preserves read-only and --write workspace-write defaults", () => {
+  const repo = makeTempDir();
+  const binDir = makeTempDir();
+  const statePath = path.join(binDir, "fake-codex-state.json");
+  installFakeCodex(binDir);
+  initGitRepo(repo);
+
+  const readOnly = run("node", [SCRIPT, "task", "inspect only"], {
+    cwd: repo,
+    env: buildEnv(binDir)
+  });
+  assert.equal(readOnly.status, 0, readOnly.stderr);
+  let fakeState = JSON.parse(fs.readFileSync(statePath, "utf8"));
+  assert.equal(fakeState.lastThreadStart.sandbox, "read-only");
+
+  const writable = run("node", [SCRIPT, "task", "--write", "make the scoped change"], {
+    cwd: repo,
+    env: buildEnv(binDir)
+  });
+  assert.equal(writable.status, 0, writable.stderr);
+  fakeState = JSON.parse(fs.readFileSync(statePath, "utf8"));
+  assert.equal(fakeState.lastThreadStart.sandbox, "workspace-write");
+});
+
+test("task --sandbox inherit omits the app-server thread sandbox override", () => {
+  const repo = makeTempDir();
+  const binDir = makeTempDir();
+  const statePath = path.join(binDir, "fake-codex-state.json");
+  installFakeCodex(binDir);
+  initGitRepo(repo);
+
+  const result = run("node", [SCRIPT, "task", "--sandbox", "inherit", "use configured permissions"], {
+    cwd: repo,
+    env: buildEnv(binDir)
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  const fakeState = JSON.parse(fs.readFileSync(statePath, "utf8"));
+  assert.equal(Object.hasOwn(fakeState.lastThreadStart, "sandbox"), false);
+  assert.equal(fakeState.lastTurnStart.prompt, "use configured permissions");
+});
+
+test("task rejects an unsupported sandbox mode instead of leaking it into the prompt", () => {
+  const repo = makeTempDir();
+  const binDir = makeTempDir();
+  const statePath = path.join(binDir, "fake-codex-state.json");
+  installFakeCodex(binDir);
+  initGitRepo(repo);
+
+  const result = run("node", [SCRIPT, "task", "--sandbox", "unconfined", "do not run"], {
+    cwd: repo,
+    env: buildEnv(binDir)
+  });
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /Unsupported sandbox mode/i);
+  assert.equal(fs.existsSync(statePath), false);
+});
+
+test("task rejects contradictory --write and read-only sandbox controls", () => {
+  const repo = makeTempDir();
+  const binDir = makeTempDir();
+  installFakeCodex(binDir);
+  initGitRepo(repo);
+
+  const result = run("node", [SCRIPT, "task", "--write", "--sandbox", "read-only", "do not run"], {
+    cwd: repo,
+    env: buildEnv(binDir)
+  });
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /--write cannot be combined with --sandbox read-only/i);
 });
 
 test("task logs reasoning summaries and assistant messages to the job log", () => {
@@ -920,7 +1016,7 @@ test("task using the shared broker still completes when Codex spawns subagents",
   assert.equal(result.stdout, "Handled the requested task.\nTask prompt accepted.\n");
 });
 
-test("task --background enqueues a detached worker and exposes per-job status", async () => {
+test("task --background preserves an explicit sandbox through the detached worker", async () => {
   const repo = makeTempDir();
   const binDir = makeTempDir();
   installFakeCodex(binDir, "slow-task");
@@ -929,10 +1025,11 @@ test("task --background enqueues a detached worker and exposes per-job status", 
   run("git", ["add", "README.md"], { cwd: repo });
   run("git", ["commit", "-m", "init"], { cwd: repo });
 
-  const launched = run("node", [SCRIPT, "task", "--background", "--json", "investigate the failing test"], {
-    cwd: repo,
-    env: buildEnv(binDir)
-  });
+  const launched = run(
+    "node",
+    [SCRIPT, "task", "--background", "--sandbox", "danger-full-access", "--json", "investigate the failing test"],
+    { cwd: repo, env: buildEnv(binDir) }
+  );
 
   assert.equal(launched.status, 0, launched.stderr);
   const launchPayload = JSON.parse(launched.stdout);
@@ -966,7 +1063,10 @@ test("task --background enqueues a detached worker and exposes per-job status", 
 
   assert.equal(resultPayload.job.id, launchPayload.jobId);
   assert.equal(resultPayload.job.status, "completed");
+  assert.equal(resultPayload.job.sandbox, "danger-full-access");
   assert.match(resultPayload.storedJob.rendered, /Handled the requested task/);
+  const fakeState = JSON.parse(fs.readFileSync(path.join(binDir, "fake-codex-state.json"), "utf8"));
+  assert.equal(fakeState.lastThreadStart.sandbox, "danger-full-access");
 });
 
 test("review rejects focus text because it is native-review only", () => {

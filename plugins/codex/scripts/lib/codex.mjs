@@ -61,11 +61,14 @@ function cleanCodexStderr(stderr) {
 
 /** @returns {ThreadStartParams} */
 function buildThreadParams(cwd, options = {}) {
+  const sandboxOverride = options.sandbox === "inherit"
+    ? {}
+    : { sandbox: options.sandbox ?? "read-only" };
   return {
     cwd,
     model: options.model ?? null,
     approvalPolicy: options.approvalPolicy ?? "never",
-    sandbox: options.sandbox ?? "read-only",
+    ...sandboxOverride,
     serviceName: SERVICE_NAME,
     ephemeral: options.ephemeral ?? true
   };
@@ -73,12 +76,15 @@ function buildThreadParams(cwd, options = {}) {
 
 /** @returns {ThreadResumeParams} */
 function buildResumeParams(threadId, cwd, options = {}) {
+  const sandboxOverride = options.sandbox === "inherit"
+    ? {}
+    : { sandbox: options.sandbox ?? "read-only" };
   return {
     threadId,
     cwd,
     model: options.model ?? null,
     approvalPolicy: options.approvalPolicy ?? "never",
-    sandbox: options.sandbox ?? "read-only"
+    ...sandboxOverride
   };
 }
 
