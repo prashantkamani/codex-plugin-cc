@@ -9,6 +9,7 @@ import { buildEnv, installFakeCodex } from "./fake-codex-fixture.mjs";
 import { initGitRepo, makeTempDir, run } from "./helpers.mjs";
 import { loadBrokerSession, saveBrokerSession } from "../plugins/codex/scripts/lib/broker-lifecycle.mjs";
 import { resolveStateDir } from "../plugins/codex/scripts/lib/state.mjs";
+import { DEFAULT_CONTINUE_PROMPT } from "../plugins/codex/scripts/lib/codex.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const PLUGIN_ROOT = path.join(ROOT, "plugins", "codex");
@@ -384,6 +385,9 @@ test("adversarial review renders structured findings over app-server turn/start"
 
   assert.equal(result.status, 0);
   assert.match(result.stdout, /Missing empty-state guard/);
+  const fakeState = JSON.parse(fs.readFileSync(path.join(binDir, "fake-codex-state.json"), "utf8"));
+  assert.equal(Object.hasOwn(fakeState.lastThreadStart, "config"), false);
+  assert.equal(Object.hasOwn(fakeState.lastThreadStart, "developerInstructions"), false);
 });
 
 test("adversarial review accepts the same base-branch targeting as review", () => {
@@ -501,6 +505,15 @@ test("task --resume-last resumes the latest persisted task thread", () => {
 
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout, "Resumed the prior run.\nFollow-up prompt accepted.\n");
+
+  const continued = run("node", [SCRIPT, "task", "--resume-last"], {
+    cwd: repo,
+    env: buildEnv(binDir)
+  });
+  assert.equal(continued.status, 0, continued.stderr);
+  const fakeState = JSON.parse(fs.readFileSync(path.join(binDir, "fake-codex-state.json"), "utf8"));
+  assert.equal(fakeState.lastTurnStart.prompt.split("\n\n")[0], DEFAULT_CONTINUE_PROMPT);
+  assert.match(fakeState.lastTurnStart.prompt, /codebase-memory-mcp cli/);
 });
 
 test("task-resume-candidate returns the latest rescue thread from the current session", () => {
@@ -611,7 +624,7 @@ test("task --resume-last does not resume a task from another Claude session", ()
 
   const fakeState = JSON.parse(fs.readFileSync(statePath, "utf8"));
   assert.equal(fakeState.lastTurnStart.threadId, "thr_1");
-  assert.equal(fakeState.lastTurnStart.prompt, "initial task");
+  assert.equal(fakeState.lastTurnStart.prompt.split("\n\n")[0], "initial task");
 });
 
 test("task --resume-last ignores running tasks from other Claude sessions", () => {
@@ -740,8 +753,14 @@ test("task --resume preserves sandbox selection without leaking routing flags in
   assert.equal(result.status, 0, result.stderr);
   const fakeState = JSON.parse(fs.readFileSync(statePath, "utf8"));
   assert.equal(fakeState.lastTurnStart.threadId, "thr_1");
-  assert.equal(fakeState.lastTurnStart.prompt, "follow up");
+  assert.equal(fakeState.lastTurnStart.prompt.split("\n\n")[0], "follow up");
   assert.equal(fakeState.lastThreadResume.sandbox, "danger-full-access");
+  assert.deepEqual(fakeState.lastThreadResume.config, {
+    "mcp_servers.codebase-memory.enabled": false
+  });
+  assert.equal(Object.hasOwn(fakeState.lastThreadResume, "developerInstructions"), false);
+  assert.match(fakeState.lastTurnStart.prompt, /codebase-memory-mcp cli/);
+  assert.match(fakeState.lastTurnStart.prompt, /Do not start/);
 });
 
 test("task --fresh is treated as routing control and does not leak into the prompt", () => {
@@ -754,14 +773,15 @@ test("task --fresh is treated as routing control and does not leak into the prom
   run("git", ["add", "README.md"], { cwd: repo });
   run("git", ["commit", "-m", "init"], { cwd: repo });
 
-  const result = run("node", [SCRIPT, "task", "--fresh", "diagnose the flaky test"], {
+  const taskPrompt = "diagnose the flaky test\n\nKeep both paragraphs unchanged.";
+  const result = run("node", [SCRIPT, "task", "--fresh", taskPrompt], {
     cwd: repo,
     env: buildEnv(binDir)
   });
 
   assert.equal(result.status, 0, result.stderr);
   const fakeState = JSON.parse(fs.readFileSync(statePath, "utf8"));
-  assert.equal(fakeState.lastTurnStart.prompt, "diagnose the flaky test");
+  assert.equal(fakeState.lastTurnStart.prompt.startsWith(`${taskPrompt}\n\nCompanion runtime guidance:`), true);
 });
 
 test("task forwards model selection and reasoning effort to app-server turn/start", () => {
@@ -803,7 +823,13 @@ test("task forwards an explicit danger-full-access sandbox to app-server thread/
   assert.equal(Date.now() - startedAt < 5000, true, "sandbox selection should add no material dispatch delay");
   const fakeState = JSON.parse(fs.readFileSync(statePath, "utf8"));
   assert.equal(fakeState.lastThreadStart.sandbox, "danger-full-access");
-  assert.equal(fakeState.lastTurnStart.prompt, "run the local verification");
+  assert.equal(fakeState.lastTurnStart.prompt.split("\n\n")[0], "run the local verification");
+  assert.deepEqual(fakeState.lastThreadStart.config, {
+    "mcp_servers.codebase-memory.enabled": false
+  });
+  assert.equal(Object.hasOwn(fakeState.lastThreadStart, "developerInstructions"), false);
+  assert.match(fakeState.lastTurnStart.prompt, /codebase-memory-mcp cli/);
+  assert.match(fakeState.lastTurnStart.prompt, /Do not start/);
 });
 
 test("task preserves read-only and --write workspace-write defaults", () => {
@@ -845,7 +871,7 @@ test("task --sandbox inherit omits the app-server thread sandbox override", () =
   assert.equal(result.status, 0, result.stderr);
   const fakeState = JSON.parse(fs.readFileSync(statePath, "utf8"));
   assert.equal(Object.hasOwn(fakeState.lastThreadStart, "sandbox"), false);
-  assert.equal(fakeState.lastTurnStart.prompt, "use configured permissions");
+  assert.equal(fakeState.lastTurnStart.prompt.split("\n\n")[0], "use configured permissions");
 });
 
 test("task rejects an unsupported sandbox mode instead of leaking it into the prompt", () => {
@@ -1067,6 +1093,11 @@ test("task --background preserves an explicit sandbox through the detached worke
   assert.match(resultPayload.storedJob.rendered, /Handled the requested task/);
   const fakeState = JSON.parse(fs.readFileSync(path.join(binDir, "fake-codex-state.json"), "utf8"));
   assert.equal(fakeState.lastThreadStart.sandbox, "danger-full-access");
+  assert.deepEqual(fakeState.lastThreadStart.config, {
+    "mcp_servers.codebase-memory.enabled": false
+  });
+  assert.equal(Object.hasOwn(fakeState.lastThreadStart, "developerInstructions"), false);
+  assert.match(fakeState.lastTurnStart.prompt, /codebase-memory-mcp cli/);
 });
 
 test("review rejects focus text because it is native-review only", () => {

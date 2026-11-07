@@ -501,8 +501,8 @@ async function executeTaskRun(request) {
 
   const result = await runAppServerTurn(workspaceRoot, {
     resumeThreadId,
-    prompt: request.prompt,
-    defaultPrompt: resumeThreadId ? DEFAULT_CONTINUE_PROMPT : "",
+    config: { "mcp_servers.codebase-memory.enabled": false },
+    prompt: `${request.prompt?.trim() || DEFAULT_CONTINUE_PROMPT}\n\nCompanion runtime guidance: For code graph queries, use \`codebase-memory-mcp cli <tool> ...\` and follow the shared codebase-memory skill. Do not start a codebase-memory MCP server. If the CLI is unavailable, report that limitation.`,
     model: request.model,
     effort: request.effort,
     sandbox: request.sandbox,

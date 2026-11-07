@@ -5,13 +5,13 @@
   },
   "metadata": {
     "description": "Maintained OpenAI Codex companion fork with explicit sandbox selection.",
-    "version": "1.0.6-aria.1"
+    "version": "1.0.6-aria.2"
   },
   "plugins": [
     {
       "name": "codex",
       "description": "Use Codex from Claude Code with explicit sandbox selection for delegated tasks.",
-      "version": "1.0.6-aria.1",
+      "version": "1.0.6-aria.2",
       "author": {
         "name": "OpenAI"
       },

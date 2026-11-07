@@ -13,6 +13,8 @@ The fork adds an explicit sandbox selector to companion task dispatch:
 
 Omitting `--sandbox` preserves upstream behavior: tasks are read-only unless `--write` selects workspace-write. Reviews remain read-only. Full access is never selected implicitly.
 
+New task threads disable the configured `codebase-memory` MCP server through native per-thread config and receive instructions to use `codebase-memory-mcp cli` instead. Tasks send the same config on resume; an already-loaded thread created before this fix may ignore resume overrides, so start a fresh task to apply the policy. Parallel companion audits can otherwise leave per-thread MCP processes resident in the shared broker and block graph-health CLI checks. The CLI reads the existing graph without registering a watcher; normal graph freshness checks still apply. Review and import flows retain their existing configuration.
+
 ## Updating from upstream
 
 1. Fetch `origin` and compare the new tag or `origin/main` with the current fork base.
